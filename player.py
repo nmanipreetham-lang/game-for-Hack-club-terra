@@ -8,7 +8,7 @@ class Player:
         self.x = float(x)
         self.y = float(y)
         self.size = PLAYER_SIZE
-        self.speed = PLAYER_SPEED
+        self.base_speed = PLAYER_SPEED
 
     def get_direction(self, keys):
         # returns a direction like (-1, 0) for left
@@ -25,7 +25,7 @@ class Player:
 
         return dx, dy
 
-    def update(self, dt, keys, walls):
+    def update(self, dt, keys, world):
         dx, dy = self.get_direction(keys)
 
         # if you go diagonal you would be faster than straight
@@ -34,13 +34,16 @@ class Player:
             dx *= 0.7
             dy *= 0.7
 
+        # the tile under you decides how fast you walk (grass, sand, etc)
+        speed = self.base_speed * world.speed_at(self.x, self.y)
+
         # i move one axis at a time so you can slide along a wall
         # instead of getting stuck on it when going diagonal
-        self.x += dx * self.speed * dt
-        self.check_wall_x(walls, dx)
+        self.x += dx * speed * dt
+        self.check_wall_x(world.walls, dx)
 
-        self.y += dy * self.speed * dt
-        self.check_wall_y(walls, dy)
+        self.y += dy * speed * dt
+        self.check_wall_y(world.walls, dy)
 
     def check_wall_x(self, walls, dx):
         rect = self.get_rect()
@@ -65,6 +68,7 @@ class Player:
                 rect = self.get_rect()
 
     def get_rect(self):
+        # this rect is in WORLD space (the whole map), not the screen
         return pygame.Rect(
             int(self.x - self.size / 2),
             int(self.y - self.size / 2),

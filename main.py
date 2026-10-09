@@ -58,7 +58,7 @@ class Game:
 
     def update(self, dt):
         keys = pygame.key.get_pressed()
-        self.player.update(dt, keys, self.world.walls)
+        self.player.update(dt, keys, self.world)
         self.camera.follow(self.player.x, self.player.y, dt)
 
     def draw(self):
@@ -78,4 +78,4 @@ class Game:
 
 
 if __name__ == "__main__":
-    Game().run()
+    Game().run() 

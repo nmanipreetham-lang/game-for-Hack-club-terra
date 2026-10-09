@@ -1,12 +1,6 @@
 import pygame
-from settings import (
-    TILE_SIZE, WIDTH, HEIGHT, FLOOR_COLOR, FLOOR_LINE_COLOR,
-    WALL_COLOR, WALL_EDGE_COLOR, WATER_COLOR, WATER_EDGE_COLOR,
-)
-
-# every tile character and if the player can walk through it
-SOLID_TILES = {"#", "~"}
-FLOOR_TILES = {".", "S"}
+from settings import TILE_SIZE, WIDTH, HEIGHT
+from tiles import get_tile
 
 
 def load_map(path):
@@ -38,11 +32,23 @@ class World:
         self.walls = []
         for row_index, row in enumerate(layout):
             for col_index, char in enumerate(row):
-                if char in SOLID_TILES:
+                if get_tile(char)["solid"]:
                     self.walls.append(self.make_tile_rect(col_index, row_index))
 
     def make_tile_rect(self, col, row):
         return pygame.Rect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+
+    def get_char_at(self, col, row):
+        # outside the map counts as wall so nothing can walk off the edge
+        if col < 0 or row < 0 or row >= self.rows or col >= self.cols:
+            return "#"
+        return self.layout[row][col]
+
+    def speed_at(self, x, y):
+        # what speed multiplier is the tile at this world position
+        col = int(x // TILE_SIZE)
+        row = int(y // TILE_SIZE)
+        return get_tile(self.get_char_at(col, row))["speed"]
 
     def draw(self, surface, camera):
         # only draw the tiles that are actually on the screen
@@ -53,16 +59,8 @@ class World:
 
         for row in range(start_row, end_row):
             for col in range(start_col, end_col):
-                char = self.layout[row][col]
+                tile = get_tile(self.layout[row][col])
                 rect = camera.apply(self.make_tile_rect(col, row))
 
-                if char == "#":
-                    pygame.draw.rect(surface, WALL_COLOR, rect)
-                    pygame.draw.rect(surface, WALL_EDGE_COLOR, rect, 2)
-                elif char == "~":
-                    pygame.draw.rect(surface, WATER_COLOR, rect)
-                    pygame.draw.rect(surface, WATER_EDGE_COLOR, rect, 2)
-                else:
-                    # floor and the spawn tile look the same
-                    pygame.draw.rect(surface, FLOOR_COLOR, rect)
-                    pygame.draw.rect(surface, FLOOR_LINE_COLOR, rect, 1)
+                pygame.draw.rect(surface, tile["color"], rect)
+                pygame.draw.rect(surface, tile["edge"], rect, tile["edge_width"])
