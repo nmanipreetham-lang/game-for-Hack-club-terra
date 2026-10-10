@@ -1,16 +1,18 @@
-import sys 
+import sys
 import pygame
 from settings import (
-    WIDTH, HEIGHT, FPS, TITLE, BG_COLOR, TEXT_COLOR, TILE_SIZE
+    WIDTH, HEIGHT, FPS, TITLE, BG_COLOR, TEXT_COLOR, TILE_SIZE,
 )
-
-from player import Player
-from world import World,load_map
-from camera import Camera 
+from player import Player, ATTACK_DAMAGE
+from enemy import Enemy
+from world import World, load_map
+from camera import Camera
 from debug import DebugOverlay
 from dialog import DialogBox
 from signs import SIGN_MESSAGES
 from minimap import Minimap
+from hud import draw_health_bar
+from pickups import Coin, COIN_VALUES
 
 # the levels in order, walking onto a door moves you to the next one
 # the last level loops back to the first one
@@ -18,6 +20,13 @@ LEVEL_FILES = [
     "maps/level_01.txt",
     "maps/level_02.txt",
 ]
+
+# which map character spawns which enemy type
+ENEMY_SPAWN_CHARS = {
+    "E": "normal",
+    "R": "runner",
+    "B": "brute",
+}
 
 
 class Game:
@@ -32,6 +41,8 @@ class Game:
         self.debug = DebugOverlay()
         self.dialog = DialogBox()
         self.minimap_visible = True
+        self.kills = 0  # counts every enemy you have killed in this game
+        self.coins = 0  # your total coins, this stays the same when you change levels
         self.level_index = 0
         self.load_level(0)
 
@@ -50,6 +61,18 @@ class Game:
 
         # the minimap is built once per level
         self.minimap = Minimap(self.world)
+
+        # every enemy character in the map file becomes an enemy of that type
+        self.enemies = []
+        for row_index, row in enumerate(rows):
+            for col_index, char in enumerate(row):
+                if char in ENEMY_SPAWN_CHARS:
+                    x = col_index * TILE_SIZE + TILE_SIZE / 2
+                    y = row_index * TILE_SIZE + TILE_SIZE / 2
+                    self.enemies.append(Enemy(x, y, ENEMY_SPAWN_CHARS[char]))
+
+        # coins lying on the ground, they are cleared when the level restarts
+        self.ground_coins = []
 
     def run(self):
         # main loop, runs every frame until you quit
@@ -90,6 +113,11 @@ class Game:
                     else:
                         self.try_read_sign()
 
+                elif event.key == pygame.K_SPACE:
+                    # you cant swing while the sign box is open
+                    if not self.dialog.is_open():
+                        self.player_attack()
+
     def try_read_sign(self):
         sign_number = self.world.find_sign_near(self.player.x, self.player.y)
         if sign_number is None:
@@ -101,8 +129,27 @@ class Game:
         else:
             self.dialog.open("this sign is blank")
 
+    def player_attack(self):
+        # ask the player for a swing, the player says no if the cooldown isnt done
+        hitbox = self.player.try_attack()
+        if hitbox is None:
+            return
+
+        # check every living enemy, if the swing touches it then it gets hurt
+        for enemy in self.enemies:
+            if not enemy.is_alive():
+                continue
+            if hitbox.colliderect(enemy.get_rect()):
+                enemy.take_damage(ATTACK_DAMAGE)
+                enemy.knockback(self.player.x, self.player.y)
+                if not enemy.is_alive():
+                    self.kills += 1
+                    # the enemy drops coins where it died
+                    value = COIN_VALUES.get(enemy.kind, 1)
+                    self.ground_coins.append(Coin(enemy.x, enemy.y, value))
+
     def update(self, dt):
-        # while the sign box is open the player stands still
+        # while the sign box is open everything in the world stops
         if not self.dialog.is_open():
             keys = pygame.key.get_pressed()
             self.player.update(dt, keys, self.world)
@@ -115,16 +162,46 @@ class Game:
                 self.load_level(next_index)
                 return
 
+            # enemies move, and touching one hurts the player by that enemy's damage
+            for enemy in self.enemies:
+                enemy.update(dt, self.player, self.world.walls)
+                if enemy.is_alive() and enemy.get_rect().colliderect(self.player.get_rect()):
+                    self.player.take_damage(enemy.damage)
+
+            # dead enemies get removed from the list
+            self.enemies = [enemy for enemy in self.enemies if enemy.is_alive()]
+
+            # coins bob up and down, and the player picks them up by walking over them
+            player_rect = self.player.get_rect()
+            for coin in self.ground_coins:
+                coin.update(dt)
+                if coin.get_rect().colliderect(player_rect):
+                    self.coins += coin.value
+                    coin.value = 0
+            self.ground_coins = [coin for coin in self.ground_coins if coin.value > 0]
+
+            # you died, so the level starts over from the spawn point
+            if not self.player.is_alive():
+                self.load_level(self.level_index)
+                return
+
         self.camera.follow(self.player.x, self.player.y, dt)
 
     def draw(self):
         self.screen.fill(BG_COLOR)
         self.world.draw(self.screen, self.camera)
+
+        for coin in self.ground_coins:
+            coin.draw(self.screen, self.camera)
+
+        for enemy in self.enemies:
+            enemy.draw(self.screen, self.camera)
+
         self.player.draw(self.screen, self.camera)
 
         # the hint stays in the same spot on screen, it doesnt move with the camera
         hint = self.font.render(
-            "WASD / arrows to move, E sign, M minimap, F3 debug, ESC quit", True, TEXT_COLOR
+            "WASD move, SPACE swing, E sign, M minimap, F3 debug, ESC quit", True, TEXT_COLOR
         )
         self.screen.blit(hint, (10, 10))
 
@@ -134,6 +211,14 @@ class Game:
         if self.minimap_visible:
             minimap_x = WIDTH - self.minimap.width - 10
             self.minimap.draw(self.screen, self.player, (minimap_x, 40))
+
+        draw_health_bar(self.screen, self.font, self.player.health, self.player.max_health)
+
+        coins_text = self.font.render(f"coins: {self.coins}", True, TEXT_COLOR)
+        self.screen.blit(coins_text, (WIDTH - coins_text.get_width() - 10, HEIGHT - 54))
+
+        kills_text = self.font.render(f"kills: {self.kills}", True, TEXT_COLOR)
+        self.screen.blit(kills_text, (WIDTH - kills_text.get_width() - 10, HEIGHT - 30))
 
         if self.debug.visible:
             self.debug.draw_grid(self.screen, self.camera)
@@ -145,4 +230,4 @@ class Game:
 
 
 if __name__ == "__main__":
-    Game().run()
+    Game().run() 
