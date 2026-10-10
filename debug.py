@@ -1,7 +1,7 @@
 import pygame
 from settings import TILE_SIZE, WIDTH, HEIGHT, TEXT_COLOR 
 
-GRID_ COLOR = (70, 70, 80)
+GRID_COLOR = (70, 70, 80)
 
 
 class DebugOverlay:
@@ -31,9 +31,9 @@ class DebugOverlay:
         lines = [
             f"fps: {int(clock.get_fps())}",
             f"player: {int(player.x)}, {int(player.y)}",
-            f"title: col {tile_col}, row {tile_row}"
+            f"title: col {title_col}, row {title_row}"
             f"camera: {int(camera.x)}, {int(player.y)}",
-            f"map: {worlds.cols} x {world.rows} tiles",
+            f"map: {world.cols} x {world.rows} tiles",
             f"walls: {len(world.walls)}",
         ]
 
