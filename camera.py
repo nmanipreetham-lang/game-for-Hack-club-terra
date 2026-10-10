@@ -37,3 +37,4 @@ class Camera:
     def apply(self, rect):
         # moves a rect from world space to screen space
         return rect.move(-int(round(self.x)), -int(round(self.y)))
+    

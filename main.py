@@ -1,27 +1,30 @@
 import sys
+import random
 import pygame
 from settings import (
     WIDTH, HEIGHT, FPS, TITLE, BG_COLOR, TEXT_COLOR, TILE_SIZE,
+
 )
 from player import Player, ATTACK_DAMAGE
 from enemy import Enemy
-from world import World, load_map
-from camera import Camera
-from debug import DebugOverlay
-from dialog import DialogBox
-from signs import SIGN_MESSAGES
-from minimap import Minimap
+from world import World, load_map 
+from camera import Camera 
+from debug  import DebugOverlay
+from dialog import DialogBox 
+from signs import SIGN_MESSAGES 
+from minimap import Minimap 
 from hud import draw_health_bar
-from pickups import Coin, COIN_VALUES
+from pickups import Coin, Heart, COIN_VALUES, HEART_DROP_CHANCE
+from spawner import EnemySpawner 
 
-# the levels in order, walking onto a door moves you to the next one
-# the last level loops back to the first one
+# the levels in order, walking onto a door moves you to the next one 
+# the last level loops back to first one 
 LEVEL_FILES = [
     "maps/level_01.txt",
     "maps/level_02.txt",
-]
 
-# which map character spawns which enemy type
+]
+# which map character spawns which enemy type 
 ENEMY_SPAWN_CHARS = {
     "E": "normal",
     "R": "runner",
@@ -36,7 +39,7 @@ class Game:
         pygame.display.set_caption(TITLE)
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont(None, 28)
-        self.running = True
+        self.running = True 
 
         self.debug = DebugOverlay()
         self.dialog = DialogBox()
@@ -63,16 +66,23 @@ class Game:
         self.minimap = Minimap(self.world)
 
         # every enemy character in the map file becomes an enemy of that type
+        # we also remember where each one started, the spawner uses these later
         self.enemies = []
+        spawn_points = []
         for row_index, row in enumerate(rows):
             for col_index, char in enumerate(row):
                 if char in ENEMY_SPAWN_CHARS:
+                    kind = ENEMY_SPAWN_CHARS[char]
                     x = col_index * TILE_SIZE + TILE_SIZE / 2
                     y = row_index * TILE_SIZE + TILE_SIZE / 2
-                    self.enemies.append(Enemy(x, y, ENEMY_SPAWN_CHARS[char]))
+                    self.enemies.append(Enemy(x, y, kind))
+                    spawn_points.append((kind, x, y))
 
-        # coins lying on the ground, they are cleared when the level restarts
+        self.spawner = EnemySpawner(spawn_points)
+
+        # coins and hearts lying on the ground, cleared when the level restarts
         self.ground_coins = []
+        self.ground_hearts = []
 
     def run(self):
         # main loop, runs every frame until you quit
@@ -143,10 +153,19 @@ class Game:
                 enemy.take_damage(ATTACK_DAMAGE)
                 enemy.knockback(self.player.x, self.player.y)
                 if not enemy.is_alive():
-                    self.kills += 1
-                    # the enemy drops coins where it died
-                    value = COIN_VALUES.get(enemy.kind, 1)
-                    self.ground_coins.append(Coin(enemy.x, enemy.y, value))
+                    self.on_enemy_died(enemy)
+
+    def on_enemy_died(self, enemy):
+        self.kills += 1
+
+        # every enemy drops coins
+        value = COIN_VALUES.get(enemy.kind, 1)
+        self.ground_coins.append(Coin(enemy.x, enemy.y, value))
+
+        # some enemies also drop a heart, the chance depends on the enemy type
+        chance = HEART_DROP_CHANCE.get(enemy.kind, 0.0)
+        if random.random() < chance:
+            self.ground_hearts.append(Heart(enemy.x, enemy.y))
 
     def update(self, dt):
         # while the sign box is open everything in the world stops
@@ -171,14 +190,12 @@ class Game:
             # dead enemies get removed from the list
             self.enemies = [enemy for enemy in self.enemies if enemy.is_alive()]
 
-            # coins bob up and down, and the player picks them up by walking over them
-            player_rect = self.player.get_rect()
-            for coin in self.ground_coins:
-                coin.update(dt)
-                if coin.get_rect().colliderect(player_rect):
-                    self.coins += coin.value
-                    coin.value = 0
-            self.ground_coins = [coin for coin in self.ground_coins if coin.value > 0]
+            # the spawner can bring one enemy back every so often
+            new_enemy = self.spawner.update(dt, self.enemies, self.player)
+            if new_enemy is not None:
+                self.enemies.append(new_enemy)
+
+            self.update_pickups(dt)
 
             # you died, so the level starts over from the spawn point
             if not self.player.is_alive():
@@ -187,12 +204,37 @@ class Game:
 
         self.camera.follow(self.player.x, self.player.y, dt)
 
+    def update_pickups(self, dt):
+        player_rect = self.player.get_rect()
+
+        # coins: walking over one adds its value to your total
+        for coin in self.ground_coins:
+            coin.update(dt)
+            if coin.get_rect().colliderect(player_rect):
+                self.coins += coin.value
+                coin.value = 0
+        self.ground_coins = [coin for coin in self.ground_coins if coin.value > 0]
+
+        # hearts: walking over one heals you, but never above your max health
+        for heart in self.ground_hearts:
+            heart.update(dt)
+            if heart.get_rect().colliderect(player_rect):
+                self.player.health = min(
+                    self.player.max_health,
+                    self.player.health + heart.heal,
+                )
+                heart.picked = True
+        self.ground_hearts = [heart for heart in self.ground_hearts if not heart.picked]
+
     def draw(self):
         self.screen.fill(BG_COLOR)
         self.world.draw(self.screen, self.camera)
 
         for coin in self.ground_coins:
             coin.draw(self.screen, self.camera)
+
+        for heart in self.ground_hearts:
+            heart.draw(self.screen, self.camera)
 
         for enemy in self.enemies:
             enemy.draw(self.screen, self.camera)

@@ -10,4 +10,4 @@ SIGN_MESSAGES = {
         "level 2. grass slows you down a bit",
         "the door on the bottom left takes you back",
     ],
-}
+} 
