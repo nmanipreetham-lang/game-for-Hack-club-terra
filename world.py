@@ -1,3 +1,4 @@
+import math
 import pygame
 from settings import TILE_SIZE, WIDTH, HEIGHT
 from tiles import get_tile
@@ -20,6 +21,11 @@ def load_map(path):
                 spawn_col, spawn_row = col_index, row_index
 
     return rows, spawn_col, spawn_row
+
+
+def clamp_color(value):
+    # colors have to stay between 0 and 255 or pygame complains
+    return max(0, min(255, value))
 
 
 class World:
@@ -68,6 +74,23 @@ class World:
                     return self.sign_positions.index(spot)
         return None
 
+    def get_tile_color(self, char, col, row, now):
+        # most tiles have one fixed color, water changes a little every frame
+        tile = get_tile(char)
+        color = tile["color"]
+
+        if char == "~":
+            # every water tile gets its own offset so they dont all change at once
+            wave = math.sin(now / 400 + col * 0.7 + row * 0.5)
+            shift = int(wave * 8)
+            color = (
+                clamp_color(color[0] + shift),
+                clamp_color(color[1] + shift),
+                clamp_color(color[2] + shift),
+            )
+
+        return color
+
     def draw(self, surface, camera):
         # only draw the tiles that are actually on the screen
         start_col = max(0, int(camera.x // TILE_SIZE))
@@ -75,10 +98,15 @@ class World:
         start_row = max(0, int(camera.y // TILE_SIZE))
         end_row = min(self.rows, int((camera.y + HEIGHT) // TILE_SIZE) + 2)
 
+        # pygame gives the time in milliseconds since the game started
+        now = pygame.time.get_ticks()
+
         for row in range(start_row, end_row):
             for col in range(start_col, end_col):
-                tile = get_tile(self.layout[row][col])
+                char = self.layout[row][col]
+                tile = get_tile(char)
                 rect = camera.apply(self.make_tile_rect(col, row))
 
-                pygame.draw.rect(surface, tile["color"], rect)
-                pygame.draw.rect(surface, tile["edge"], rect, tile["edge_width"]) 
+                color = self.get_tile_color(char, col, row, now)
+                pygame.draw.rect(surface, color, rect)
+                pygame.draw.rect(surface, tile["edge"], rect, tile["edge_width"])
