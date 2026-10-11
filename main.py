@@ -3,28 +3,28 @@ import random
 import pygame
 from settings import (
     WIDTH, HEIGHT, FPS, TITLE, BG_COLOR, TEXT_COLOR, TILE_SIZE,
-
 )
 from player import Player, ATTACK_DAMAGE
 from enemy import Enemy
-from world import World, load_map 
-from camera import Camera 
-from debug  import DebugOverlay
-from dialog import DialogBox 
-from signs import SIGN_MESSAGES 
-from minimap import Minimap 
+from world import World, load_map
+from camera import Camera
+from debug import DebugOverlay
+from dialog import DialogBox
+from signs import SIGN_MESSAGES
+from minimap import Minimap
 from hud import draw_health_bar
 from pickups import Coin, Heart, COIN_VALUES, HEART_DROP_CHANCE
-from spawner import EnemySpawner 
+from spawner import EnemySpawner
+from crowd import separate_enemies
 
-# the levels in order, walking onto a door moves you to the next one 
-# the last level loops back to first one 
+# the levels in order, walking onto a door moves you to the next one
+# the last level loops back to the first one
 LEVEL_FILES = [
     "maps/level_01.txt",
     "maps/level_02.txt",
-
 ]
-# which map character spawns which enemy type 
+
+# which map character spawns which enemy type
 ENEMY_SPAWN_CHARS = {
     "E": "normal",
     "R": "runner",
@@ -39,7 +39,7 @@ class Game:
         pygame.display.set_caption(TITLE)
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont(None, 28)
-        self.running = True 
+        self.running = True
 
         self.debug = DebugOverlay()
         self.dialog = DialogBox()
@@ -186,6 +186,9 @@ class Game:
                 enemy.update(dt, self.player, self.world.walls)
                 if enemy.is_alive() and enemy.get_rect().colliderect(self.player.get_rect()):
                     self.player.take_damage(enemy.damage)
+
+            # enemies push each other apart so they dont stack up
+            separate_enemies(self.enemies, self.world.walls)
 
             # dead enemies get removed from the list
             self.enemies = [enemy for enemy in self.enemies if enemy.is_alive()]
