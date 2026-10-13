@@ -54,6 +54,10 @@ ENEMY_LOST_TIME = 2.0        # how long it keeps searching
 ENEMY_SEARCH_REACH = 6       # close enough to the spot, stop searching
 ENEMY_SEARCH_SPEED = 0.7     # searching is slower than a full chase
 
+# leash. wandering enemies dont drift across the whole map,
+# they stay within this many pixels of where they spawned
+ENEMY_LEASH = 160
+
 
 def has_line_of_sight(x1, y1, x2, y2, walls):
     # returns True if no wall is sitting between the two points
@@ -94,6 +98,10 @@ class Enemy:
         self.last_seen_x = 0.0
         self.last_seen_y = 0.0
         self.lost_timer = 0.0
+
+        # the spot this enemy spawned at, used for the leash
+        self.home_x = self.x
+        self.home_y = self.y
 
         self.hurt_timer = 0.0
         self.knock_x = 0.0
@@ -192,13 +200,23 @@ class Enemy:
             speed = self.chase_speed * ENEMY_SEARCH_SPEED
 
         else:
-            # nobody nearby, so wander in a random direction for a few seconds
+            # nobody nearby, so wander around. but if we drifted too far from
+            # home, walk back home instead
             self.chasing = False
-            self.change_timer -= dt
-            if self.change_timer <= 0:
-                self.pick_direction()
-            dx, dy = self.direction
-            speed = self.wander_speed
+            home_x = self.home_x - self.x
+            home_y = self.home_y - self.y
+            home_dist = math.hypot(home_x, home_y)
+
+            if home_dist > ENEMY_LEASH:
+                dx = home_x / home_dist
+                dy = home_y / home_dist
+                speed = self.wander_speed
+            else:
+                self.change_timer -= dt
+                if self.change_timer <= 0:
+                    self.pick_direction()
+                dx, dy = self.direction
+                speed = self.wander_speed
 
         # same axis by axis movement as the player so walls work the same way
         self.x += dx * speed * dt
@@ -257,4 +275,3 @@ class Enemy:
             fill = pygame.Rect(screen_rect.x, screen_rect.y - 8, fill_width, 4)
             pygame.draw.rect(surface, ENEMY_BAR_BACK, back)
             pygame.draw.rect(surface, ENEMY_BAR_FILL, fill) 
-            
