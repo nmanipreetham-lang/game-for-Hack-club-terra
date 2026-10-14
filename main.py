@@ -16,6 +16,7 @@ from hud import draw_health_bar
 from pickups import Coin, Heart, COIN_VALUES, HEART_DROP_CHANCE
 from spawner import EnemySpawner
 from crowd import separate_enemies
+from damage_text import DamageTextList
 
 # the levels in order, walking onto a door moves you to the next one
 # the last level loops back to the first one
@@ -46,6 +47,7 @@ class Game:
         self.minimap_visible = True
         self.kills = 0  # counts every enemy you have killed in this game
         self.coins = 0  # your total coins, this stays the same when you change levels
+        self.damage_texts = DamageTextList()  # the little damage numbers over enemies
         self.level_index = 0
         self.load_level(0)
 
@@ -151,6 +153,7 @@ class Game:
                 continue
             if hitbox.colliderect(enemy.get_rect()):
                 enemy.take_damage(ATTACK_DAMAGE)
+                self.damage_texts.add(enemy.x, enemy.y - enemy.size / 2, ATTACK_DAMAGE)
                 enemy.knockback(self.player.x, self.player.y)
                 if not enemy.is_alive():
                     self.on_enemy_died(enemy)
@@ -199,6 +202,7 @@ class Game:
                 self.enemies.append(new_enemy)
 
             self.update_pickups(dt)
+            self.damage_texts.update(dt)
 
             # you died, so the level starts over from the spawn point
             if not self.player.is_alive():
@@ -241,6 +245,9 @@ class Game:
 
         for enemy in self.enemies:
             enemy.draw(self.screen, self.camera)
+
+        # damage numbers float above whatever got hit
+        self.damage_texts.draw(self.screen, self.camera)
 
         self.player.draw(self.screen, self.camera)
 
