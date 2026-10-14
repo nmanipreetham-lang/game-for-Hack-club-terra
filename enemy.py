@@ -58,6 +58,15 @@ ENEMY_SEARCH_SPEED = 0.7     # searching is slower than a full chase
 # they stay within this many pixels of where they spawned
 ENEMY_LEASH = 160
 
+# lunge attack. when a chasing enemy gets close, it stops, flashes yellow
+# to warn you, then dashes at you. the warning is the important part
+LUNGE_RANGE = 50                    # how close it has to be before it winds up
+LUNGE_WINDUP = 0.4                  # how long it stands still and flashes
+LUNGE_TIME = 0.2                    # how long the dash lasts
+LUNGE_SPEED = 260                   # how fast the dash is
+LUNGE_COOLDOWN = 1.5                # how long it has to wait before the next lunge
+LUNGE_WARN_COLOR = (255, 220, 60)   # yellow flash during the wind up
+
 
 def has_line_of_sight(x1, y1, x2, y2, walls):
     # returns True if no wall is sitting between the two points
@@ -102,6 +111,13 @@ class Enemy:
         # the spot this enemy spawned at, used for the leash
         self.home_x = self.x
         self.home_y = self.y
+
+        # lunge state: "none", "windup" or "lunge"
+        self.lunge_state = "none"
+        self.lunge_timer = 0.0
+        self.lunge_cooldown = 0.0
+        self.lunge_dx = 0.0
+        self.lunge_dy = 0.0
 
         self.hurt_timer = 0.0
         self.knock_x = 0.0
@@ -166,9 +182,48 @@ class Enemy:
             self.hit_wall_y(walls, self.knock_y)
             return
 
+        if self.lunge_cooldown > 0:
+            self.lunge_cooldown -= dt
+
+        # in the middle of a lunge, keep dashing in the same direction
+        if self.lunge_state == "lunge":
+            self.lunge_timer -= dt
+            self.x += self.lunge_dx * LUNGE_SPEED * dt
+            self.hit_wall_x(walls, self.lunge_dx)
+            self.y += self.lunge_dy * LUNGE_SPEED * dt
+            self.hit_wall_y(walls, self.lunge_dy)
+            if self.lunge_timer <= 0:
+                self.lunge_state = "none"
+                self.lunge_cooldown = LUNGE_COOLDOWN
+            return
+
+        # winding up, stand still and flash so the player can react
+        if self.lunge_state == "windup":
+            self.lunge_timer -= dt
+            if self.lunge_timer <= 0:
+                # lock in the direction at the moment the dash starts
+                to_x = player.x - self.x
+                to_y = player.y - self.y
+                length = math.hypot(to_x, to_y)
+                if length == 0:
+                    length = 1
+                self.lunge_dx = to_x / length
+                self.lunge_dy = to_y / length
+                self.lunge_state = "lunge"
+                self.lunge_timer = LUNGE_TIME
+            return
+
         to_x = player.x - self.x
         to_y = player.y - self.y
         distance = math.hypot(to_x, to_y)
+
+        # close enough and ready, so start the warning
+        if (distance > 0 and distance < LUNGE_RANGE and self.lunge_cooldown <= 0
+                and self.can_see(player, walls)):
+            self.lunge_state = "windup"
+            self.lunge_timer = LUNGE_WINDUP
+            self.chasing = True
+            return
 
         if distance > 0 and self.can_see(player, walls):
             # the player is close and not behind a wall, so walk straight at them
@@ -262,8 +317,12 @@ class Enemy:
         if not self.is_alive():
             return
 
-        # flash white for a moment after getting hit
-        color = ENEMY_HURT_COLOR if self.hurt_timer > 0 else self.color
+        # yellow while winding up a lunge, white when hit, normal color otherwise
+        color = self.color
+        if self.lunge_state == "windup":
+            color = LUNGE_WARN_COLOR
+        if self.hurt_timer > 0:
+            color = ENEMY_HURT_COLOR
 
         screen_rect = camera.apply(self.get_rect())
         pygame.draw.rect(surface, color, screen_rect, border_radius=4)
@@ -274,4 +333,5 @@ class Enemy:
             fill_width = int(screen_rect.width * self.health / self.max_health)
             fill = pygame.Rect(screen_rect.x, screen_rect.y - 8, fill_width, 4)
             pygame.draw.rect(surface, ENEMY_BAR_BACK, back)
-            pygame.draw.rect(surface, ENEMY_BAR_FILL, fill) 
+            pygame.draw.rect(surface, ENEMY_BAR_FILL, fill)              
+
