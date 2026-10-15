@@ -15,8 +15,8 @@ from minimap import Minimap
 from hud import draw_health_bar
 from pickups import Coin, Heart, COIN_VALUES, HEART_DROP_CHANCE
 from spawner import EnemySpawner
-from crowd import separate_enemies
-from damage_text import DamageTextList
+from crowd import separate_enemies, alert_nearby_enemies, crowd_report
+from damage import DamageTextList
 
 # the levels in order, walking onto a door moves you to the next one
 # the last level loops back to the first one
@@ -184,6 +184,9 @@ class Game:
                 self.load_level(next_index)
                 return
 
+            # enemies that see you warn the ones standing near them
+            alert_nearby_enemies(self.enemies, self.player, self.world.walls)
+
             # enemies move, and touching one hurts the player by that enemy's damage
             for enemy in self.enemies:
                 enemy.update(dt, self.player, self.world.walls)
@@ -274,7 +277,7 @@ class Game:
 
         if self.debug.visible:
             self.debug.draw_grid(self.screen, self.camera)
-            self.debug.draw_info(self.screen, self.clock, self.player, self.world, self.camera)
+            self.debug.draw_info(self.screen, self.clock, self.player, self.world, self.camera, crowd_report(self.enemies))
 
         self.dialog.draw(self.screen)
 
