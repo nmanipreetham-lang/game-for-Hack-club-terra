@@ -1,27 +1,14 @@
 import math
+from enemy import ENEMY_LOST_TIME
 
-# enemies used to stack on top of each other and look like one big blob
-# this file pushes them apart a little every frame
-#
-# how it works:
-#   1. sort every living enemy into little grid cells so we only compare
-#      enemies that are actually near each other (way faster with lots of enemies)
-#   2. for every close pair, push them apart. heavier enemies (brutes) get
-#      pushed less than light ones (runners)
-#   3. do a few passes per frame so the spreading finishes quickly
-#   4. walls always win, nobody gets pushed through one
+SEPARATE_GAP = 4
+SEPARATE_RATE = 0.5
+SEPARATE_PASSES = 2
+MAX_PUSH = 8.0
+GRID_CELL = 64
+CROWD_RADIUS = 60
+CROWD_MIN_NEIGHBORS = 2
 
-# ----- tuning numbers -----
-SEPARATE_GAP = 4          # extra space we want between two enemies, in pixels
-SEPARATE_RATE = 0.5       # how much of the overlap gets fixed in one pass
-SEPARATE_PASSES = 2       # how many times we run the push per frame
-MAX_PUSH = 8.0            # the most one enemy can get shoved in one pass, keeps things smooth
-GRID_CELL = 64            # size of the grid cells in pixels, bigger = fewer cells to check
-CROWD_RADIUS = 60         # how close counts as "in a crowd" for the debug count
-CROWD_MIN_NEIGHBORS = 2   # how many friends nearby before an enemy counts as crowded
-
-# how heavy each enemy type feels when pushed
-# a brute barely moves, a runner gets bumped around a lot
 MASS = {
     "normal": 1.0,
     "runner": 0.7,
@@ -29,15 +16,23 @@ MASS = {
 }
 DEFAULT_MASS = 1.0
 
+ALERT_RADIUS = 200
+
+SHOCK_PUSH = 120
+SHOCK_FALLOFF = 0.6
+
+MAX_REPORT_LINES = 6
+
 
 def get_mass(enemy):
-    # look up how heavy this enemy is, default if we dont know the type
     return MASS.get(enemy.kind, DEFAULT_MASS)
 
 
+def living(enemies):
+    return [enemy for enemy in enemies if enemy.is_alive()]
+
+
 def build_grid(enemies):
-    # put each enemy into the cell it sits in
-    # the key is a (col, row) pair and the value is a list of enemies in that cell
     grid = {}
     for enemy in enemies:
         key = (int(enemy.x // GRID_CELL), int(enemy.y // GRID_CELL))
@@ -48,8 +43,6 @@ def build_grid(enemies):
 
 
 def neighbor_pairs(enemies):
-    # yields every pair of enemies that could possibly be touching
-    # only looks at its own cell and the 8 cells around it
     grid = build_grid(enemies)
     seen = set()
 
@@ -64,7 +57,6 @@ def neighbor_pairs(enemies):
                     for b in other_cell:
                         if a is b:
                             continue
-                        # make sure each pair only shows up once
                         pair_id = (min(id(a), id(b)), max(id(a), id(b)))
                         if pair_id in seen:
                             continue
@@ -73,7 +65,6 @@ def neighbor_pairs(enemies):
 
 
 def nudge(enemy, move_x, move_y, walls):
-    # move an enemy a little, axis by axis, so walls still stop it
     if move_x != 0:
         enemy.x += move_x
         enemy.hit_wall_x(walls, move_x)
@@ -83,8 +74,6 @@ def nudge(enemy, move_x, move_y, walls):
 
 
 def push_pair(a, b, walls):
-    # push two overlapping enemies apart
-    # returns True if they were actually overlapping
     dx = b.x - a.x
     dy = b.y - a.y
     distance = math.hypot(dx, dy)
@@ -93,7 +82,6 @@ def push_pair(a, b, walls):
     if distance >= min_distance:
         return False
 
-    # two enemies on the exact same spot, pick a direction so we dont divide by zero
     if distance == 0:
         dx, dy, distance = 1.0, 0.0, 1.0
 
@@ -101,12 +89,11 @@ def push_pair(a, b, walls):
     nx = dx / distance
     ny = dy / distance
 
-    # the lighter enemy takes more of the push
     mass_a = get_mass(a)
     mass_b = get_mass(b)
     total = mass_a + mass_b
-    share_a = mass_b / total    # a moves away from b by this share
-    share_b = mass_a / total    # b moves away from a by this share
+    share_a = mass_b / total
+    share_b = mass_a / total
 
     push_a = min(MAX_PUSH, overlap * share_a)
     push_b = min(MAX_PUSH, overlap * share_b)
@@ -117,9 +104,7 @@ def push_pair(a, b, walls):
 
 
 def separate_enemies(enemies, walls):
-    # main entry point, main.py calls this once per frame
-    # only living enemies take part
-    alive = [enemy for enemy in enemies if enemy.is_alive()]
+    alive = living(enemies)
     if len(alive) < 2:
         return
 
@@ -129,9 +114,7 @@ def separate_enemies(enemies, walls):
 
 
 def count_crowded(enemies):
-    # how many enemies have at least CROWD_MIN_NEIGHBORS friends close by
-    # handy for the debug overlay if you want to see how packed things get
-    alive = [enemy for enemy in enemies if enemy.is_alive()]
+    alive = living(enemies)
     neighbor_count = {id(enemy): 0 for enemy in alive}
 
     for a, b in neighbor_pairs(alive):
@@ -144,4 +127,101 @@ def count_crowded(enemies):
     for enemy in alive:
         if neighbor_count[id(enemy)] >= CROWD_MIN_NEIGHBORS:
             crowded += 1
-    return crowded 
+    return crowded
+
+
+def alert_nearby_enemies(enemies, player, walls):
+    alive = living(enemies)
+
+    spotters = [enemy for enemy in alive if enemy.can_see(player, walls)]
+
+    for spotter in spotters:
+        for other in alive:
+            if other is spotter:
+                continue
+
+            if other.lunge_state != "none" or other.fleeing:
+                continue
+
+            if other.can_see(player, walls):
+                continue
+
+            distance = math.hypot(other.x - spotter.x, other.y - spotter.y)
+            if distance > ALERT_RADIUS:
+                continue
+
+            other.last_seen_x = player.x
+            other.last_seen_y = player.y
+            other.lost_timer = ENEMY_LOST_TIME
+
+
+def group_center(enemies):
+    alive = living(enemies)
+    if not alive:
+        return None
+
+    total_x = sum(enemy.x for enemy in alive)
+    total_y = sum(enemy.y for enemy in alive)
+    count = len(alive)
+    return total_x / count, total_y / count
+
+
+def closest_enemy(enemies, x, y):
+    alive = living(enemies)
+    best = None
+    best_distance = None
+
+    for enemy in alive:
+        distance = math.hypot(enemy.x - x, enemy.y - y)
+        if best is None or distance < best_distance:
+            best = enemy
+            best_distance = distance
+
+    return best
+
+
+def enemies_in_radius(enemies, x, y, radius):
+    found = []
+    for enemy in living(enemies):
+        if math.hypot(enemy.x - x, enemy.y - y) <= radius:
+            found.append(enemy)
+    return found
+
+
+def shock_push(enemies, x, y, radius, walls):
+    hit = []
+    for enemy in enemies_in_radius(enemies, x, y, radius):
+        dx = enemy.x - x
+        dy = enemy.y - y
+        distance = math.hypot(dx, dy)
+
+        if distance == 0:
+            dx, dy, distance = 1.0, 0.0, 1.0
+
+        closeness = 1 - (distance / radius) * SHOCK_FALLOFF
+        push = SHOCK_PUSH * closeness
+
+        move_x = dx / distance * push * 0.1
+        move_y = dy / distance * push * 0.1
+        nudge(enemy, move_x, move_y, walls)
+        hit.append(enemy)
+
+    return hit
+
+
+def crowd_report(enemies):
+    alive = living(enemies)
+    counts = {}
+    for enemy in alive:
+        counts[enemy.kind] = counts.get(enemy.kind, 0) + 1
+
+    lines = []
+    for kind in sorted(counts):
+        lines.append(f"{kind}: {counts[kind]}")
+    lines.append(f"crowded: {count_crowded(alive)}")
+
+    center = group_center(alive)
+    if center is not None:
+        lines.append(f"center: {int(center[0])}, {int(center[1])}")
+
+    return lines[:MAX_REPORT_LINES] 
