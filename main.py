@@ -16,7 +16,8 @@ from hud import draw_health_bar
 from pickups import Coin, Heart, COIN_VALUES, HEART_DROP_CHANCE
 from spawner import EnemySpawner
 from crowd import separate_enemies, alert_nearby_enemies, crowd_report
-from damage import DamageTextList
+from damage_text import DamageTextList
+from projectile import Projectile, PROJECTILE_DAMAGE, THROW_COOLDOWN
 
 # the levels in order, walking onto a door moves you to the next one
 # the last level loops back to the first one
@@ -48,6 +49,8 @@ class Game:
         self.kills = 0  # counts every enemy you have killed in this game
         self.coins = 0  # your total coins, this stays the same when you change levels
         self.damage_texts = DamageTextList()  # the little damage numbers over enemies
+        self.projectiles = []
+        self.rock_cooldown = 0.0
         self.level_index = 0
         self.load_level(0)
 
@@ -85,6 +88,7 @@ class Game:
         # coins and hearts lying on the ground, cleared when the level restarts
         self.ground_coins = []
         self.ground_hearts = []
+        self.projectiles = []
 
     def run(self):
         # main loop, runs every frame until you quit
@@ -116,6 +120,9 @@ class Game:
                 elif event.key == pygame.K_F3:
                     self.debug.toggle()
 
+                elif event.key == pygame.K_r:
+                    self.throw_rock()
+
                 elif event.key == pygame.K_m:
                     self.minimap_visible = not self.minimap_visible
 
@@ -140,6 +147,30 @@ class Game:
             self.dialog.open(messages[sign_number])
         else:
             self.dialog.open("this sign is blank")
+
+    def throw_rock(self):
+        if self.rock_cooldown > 0 or self.dialog.is_open():
+            return
+
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        target_x = mouse_x + int(round(self.camera.x))
+        target_y = mouse_y + int(round(self.camera.y))
+        self.projectiles.append(Projectile(self.player.x, self.player.y, target_x, target_y))
+        self.rock_cooldown = THROW_COOLDOWN
+
+    def update_projectiles(self, dt):
+        if self.rock_cooldown > 0:
+            self.rock_cooldown -= dt
+
+        for projectile in self.projectiles:
+            projectile.update(dt, self.world.walls)
+            hit = projectile.check_enemies(self.enemies, PROJECTILE_DAMAGE)
+            if hit is not None:
+                self.damage_texts.add(hit.x, hit.y - hit.size / 2, PROJECTILE_DAMAGE)
+                if not hit.is_alive():
+                    self.on_enemy_died(hit)
+
+        self.projectiles = [projectile for projectile in self.projectiles if projectile.alive]
 
     def player_attack(self):
         # ask the player for a swing, the player says no if the cooldown isnt done
@@ -206,6 +237,7 @@ class Game:
 
             self.update_pickups(dt)
             self.damage_texts.update(dt)
+            self.update_projectiles(dt)
 
             # you died, so the level starts over from the spawn point
             if not self.player.is_alive():
@@ -252,11 +284,14 @@ class Game:
         # damage numbers float above whatever got hit
         self.damage_texts.draw(self.screen, self.camera)
 
+        for projectile in self.projectiles:
+            projectile.draw(self.screen, self.camera)
+
         self.player.draw(self.screen, self.camera)
 
         # the hint stays in the same spot on screen, it doesnt move with the camera
         hint = self.font.render(
-            "WASD move, SPACE swing, E sign, M minimap, F3 debug, ESC quit", True, TEXT_COLOR
+            "WASD move, SPACE swing, R rock, E sign, M minimap, F3 debug, ESC quit", True, TEXT_COLOR
         )
         self.screen.blit(hint, (10, 10))
 
@@ -285,4 +320,4 @@ class Game:
 
 
 if __name__ == "__main__":
-    Game().run() 
+    Game().run()   
