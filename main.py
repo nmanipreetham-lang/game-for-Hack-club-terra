@@ -16,7 +16,7 @@ from hud import draw_health_bar
 from pickups import Coin, Heart, COIN_VALUES, HEART_DROP_CHANCE
 from spawner import EnemySpawner
 from crowd import separate_enemies, alert_nearby_enemies, crowd_report
-from damage_text import DamageTextList
+from damage import DamageTextList
 from projectile import Projectile, PROJECTILE_DAMAGE, THROW_COOLDOWN
 
 # the levels in order, walking onto a door moves you to the next one
