@@ -1,0 +1,48 @@
+name: Windows release build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: Check map loading and bundled paths
+        run: python -m unittest discover -s tests -v
+
+      - name: Build the Windows executable
+        run: python -m PyInstaller --noconfirm --clean --onefile --noconsole --name TerraQuest --add-data "maps;maps" main.py
+
+      - name: Upload the executable as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TerraQuest-Windows
+          path: dist/TerraQuest.exe
+          if-no-files-found: error
+
+      - name: Attach the executable to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Terra Quest ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/TerraQuest.exe

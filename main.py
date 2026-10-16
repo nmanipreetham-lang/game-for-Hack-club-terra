@@ -1,5 +1,6 @@
 import sys
 import random
+from pathlib import Path
 import pygame
 from settings import (
     WIDTH, HEIGHT, FPS, TITLE, BG_COLOR, TEXT_COLOR, TILE_SIZE,
@@ -18,6 +19,12 @@ from spawner import EnemySpawner
 from crowd import separate_enemies, alert_nearby_enemies, crowd_report
 from damage import DamageTextList
 from projectile import Projectile, PROJECTILE_DAMAGE, THROW_COOLDOWN
+
+
+def asset_path(relative_path):
+    bundle_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return bundle_dir / relative_path
+
 
 # the levels in order, walking onto a door moves you to the next one
 # the last level loops back to the first one
@@ -57,7 +64,7 @@ class Game:
     def load_level(self, index):
         # loads a map, puts the player on its spawn tile and resets the camera
         self.level_index = index
-        rows, spawn_col, spawn_row = load_map(LEVEL_FILES[index])
+        rows, spawn_col, spawn_row = load_map(asset_path(LEVEL_FILES[index]))
         self.world = World(rows)
 
         spawn_x = spawn_col * TILE_SIZE + TILE_SIZE / 2

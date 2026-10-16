@@ -85,7 +85,8 @@ def has_line_of_sight(x1, y1, x2, y2, walls):
         py = y1 + (y2 - y1)  * t 
         for wall in walls:
             if wall.collidepoint(px, py):
-                return True 
+                return False
+    return True
 
 
 class Enemy: 

@@ -7,10 +7,6 @@ TITLE = "Terra Quest"
 
 TILE_SIZE = 32 
 
-# the map is loaded from this text file 
-# # = wall, . = floor,  ~ = water (blocks you), S = player spawn 
-LEVEL_FILE = "maps/level_)01.txt"
-
 # how fast the camera catches up to the player (higher = snappier)
 CAMERA_SMOOTH = 10 
 
