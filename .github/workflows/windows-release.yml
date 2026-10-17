@@ -32,17 +32,27 @@ jobs:
       - name: Build the Windows executable
         run: python -m PyInstaller --noconfirm --clean --onefile --noconsole --name TerraQuest --add-data "maps;maps" main.py
 
-      - name: Upload the executable as a workflow artifact
+      - name: Create a zipped Windows download
+        shell: pwsh
+        run: |
+          $files = @("dist/TerraQuest.exe", "README.md")
+          Compress-Archive -LiteralPath $files -DestinationPath "dist/TerraQuest-Windows.zip" -Force
+
+      - name: Upload the Windows downloads as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: TerraQuest-Windows
-          path: dist/TerraQuest.exe
+          path: |
+            dist/TerraQuest.exe
+            dist/TerraQuest-Windows.zip
           if-no-files-found: error
 
-      - name: Attach the executable to the GitHub Release
+      - name: Attach the Windows downloads to the GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: Terra Quest ${{ github.ref_name }}
           generate_release_notes: true
-          files: dist/TerraQuest.exe
+          files: |
+            dist/TerraQuest.exe
+            dist/TerraQuest-Windows.zip
