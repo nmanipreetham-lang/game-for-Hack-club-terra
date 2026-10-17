@@ -25,7 +25,7 @@ def load_map(path):
 
 def clamp_color(value):
     # colors have to stay between 0 and 255 or pygame complains
-    return max(0, min(255, value))
+    return max(0, min(255, value)) 
 
 
 class World:

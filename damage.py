@@ -49,4 +49,4 @@ class DamageTextList:
             fade = int(255 * max(0, item.timer) / DAMAGE_TEXT_TIME)
             text.set_alpha(fade)
             # center the number over the spot 
-            surface.blit(text, (spot.x - text.get_width()  // 2, spot.y))                            
+            surface.blit(text, (spot.x - text.get_width()  // 2, spot.y))                     S       
