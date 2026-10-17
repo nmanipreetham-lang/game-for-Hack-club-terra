@@ -40,7 +40,9 @@ There is no save system, sound, or boss fight yet.
 
 ## Windows download
 
-This is a desktop Pygame game, not a browser game. Download `TerraQuest.exe` from the [GitHub Releases page](https://github.com/nmanipreetham-lang/game-for-Hack-club-terra/releases) when a Windows build is available.
+This is a desktop Pygame game, not a browser game. Download the Windows executable directly: [**TerraQuest.exe**](https://github.com/nmanipreetham-lang/game-for-Hack-club-terra/releases/download/v0.1.0/TerraQuest.exe).
+
+If your browser says the download failed, open that direct download link in an Incognito or Private window and retry. The [release page](https://github.com/nmanipreetham-lang/game-for-Hack-club-terra/releases/tag/v0.1.0) has the controls and notes.
 
 The `Windows release build` GitHub Actions workflow builds `TerraQuest.exe` when a version tag beginning with `v` is published. To build it yourself on Windows, run these commands from the project folder:
 
