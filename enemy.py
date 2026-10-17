@@ -1,96 +1,106 @@
-import math 
+import math
 import random
-import pygame 
+import pygame
 
-# every enemy type in one place 
-# to make a new enemy, copy one of these and change the numbers 
-# the map characher for each type is set in main.py 
 ENEMY_TYPES = {
     "normal": {
-        "color": (200, 70, 70),   # red 
+        "color": (200, 70, 70),   # red
         "size": 24,
-        "max_health" : 3,
-        "damage": 10,             # health the player loses when touching it 
-        "wander_speed": 60,       # pixels per second when walking around 
-        "chase_speed": 110,       # pixels per second when second when chasing you 
-        "sight": 200,             # how clase you have to be before it chases 
+        "max_health": 3,
+        "damage": 10,             # health the player loses when touching it
+        "wander_speed": 60,       # pixels per second when walking around
+        "chase_speed": 110,       # pixels per second when chasing you
+        "sight": 200,             # how close you have to be before it chases
     },
-    "runner": { 
-        "color": (230, 170, 60),  # orange 
-        "size": 18, 
+    "runner": {
+        "color": (230, 170, 60),  # orange
+        "size": 18,
         "max_health": 2,
         "damage": 8,
         "wander_speed": 90,
-        "chase_speed": 190,       # really fast so you cant just walk away 
-        "sight": 260,  
-        "flees": True,            # runs away once it gets hurt badly 
+        "chase_speed": 190,       # really fast, so you cant just walk away
+        "sight": 260,
+        "flees": True,
     },
-    "brute": { 
-        "color": (130, 60, 160),  # purple 
-        "size": 34, 
-        "max_health": 6,          # takes a lot of swings 
-        "damage": 20,             # but it hits really hard 
+    "brute": {
+        "color": (130, 60, 160),  # purple
+        "size": 34,
+        "max_health": 6,          # takes a lot of swings
+        "damage": 20,             # but it hits really hard
         "wander_speed": 35,
-        "chase_speed": 60,        # slow, you can outrun it 
+        "chase_speed": 60,        # slow, you can outrun it
         "sight": 180,
+    },
+    "spitter": {
+        "color": (80, 180, 120),
+        "size": 22,
+        "max_health": 2,
+        "damage": 6,
+        "wander_speed": 40,
+        "chase_speed": 70,
+        "sight": 320,
+        "shoots": True,
     },
 }
 
-ENEMY_HURT_COLOR = (255, 225, 255) # the enemy flashes this color when hit
+ENEMY_HURT_COLOR = (255, 255, 255)  # the enemy flashes this color when hit
 ENEMY_BAR_BACK = (60, 20, 20)
 ENEMY_BAR_FILL = (120, 230, 120)
 
-ENEMY_HURT_TIME = 0.2     # how long the white flash lasts 
-ENEMY_KNOCK_SPEED = 180   # how fast the enemy gets pushed back when hit 
-ENEMY_KNOCK_TIME = 0.2    # how long he push lasts 
+ENEMY_HURT_TIME = 0.2     # how long the white flash lasts
+ENEMY_KNOCK_SPEED = 180   # how fast the enemy gets pushed back when hit
+ENEMY_KNOCK_TIME = 0.2    # how long the push lasts
 
 # line of sight check. we walk along the line between the enemy and the
 # player and check for walls every few pixels. smaller number = more accurate
-# but a bit slower 
-SIGHT_STEP = 8 
+# but a bit slower
+SIGHT_STEP = 8
 
-# when an enemy loses you it dosent just forget you right away 
-# it goes to the last spot it saw you and looks around for a bit 
-ENEMY_LOST_TIME = 2.0        # how long it keeps seaarching 
-ENEMY_SEARCH_REACH = 6       # close enough to the spot, stop searching 
-ENEMY_SEARCH_SPEED = 0.7     # searching is slower than a full chase 
+# when an enemy loses you it doesnt just forget you right away.
+# it goes to the last spot it saw you and looks around for a bit
+ENEMY_LOST_TIME = 2.0        # how long it keeps searching
+ENEMY_SEARCH_REACH = 6       # close enough to the spot, stop searching
+ENEMY_SEARCH_SPEED = 0.7     # searching is slower than a full chase
 
-# leash. wandering enemies dont drift across the whole map, 
-# they stay within this many pixels of where they spawned 
-ENEMY_LEASH = 160 
+# leash. wandering enemies dont drift across the whole map,
+# they stay within this many pixels of where they spawned
+ENEMY_LEASH = 160
 
-# lung attack. when a chasing enemy gets closer,it stops, flashes yellow 
-# to warn you, than dashes at you. the warning is the important part 
-LUNGE_RANGE = 50                    # how close it has to be before it winds up 
-LUNGE_WINDUP = 0.4                  # how long it stands still and flashes 
-LUNGE_TIME = 0.2                    # how long the dash lasts 
-LUNGE_SPEED = 260                   # how fast the dash is 
-LUNGE_COOLDOWN = 1.5                # how long it has to wait before the next lunge 
-LUNGE_WARN_COLOR = (255, 220, 60)   # yellow flash during the wind up 
+# lunge attack. when a chasing enemy gets close, it stops, flashes yellow
+# to warn you, then dashes at you. the warning is the important part
+LUNGE_RANGE = 50                    # how close it has to be before it winds up
+LUNGE_WINDUP = 0.4                  # how long it stands still and flashes
+LUNGE_TIME = 0.2                    # how long the dash lasts
+LUNGE_SPEED = 260                   # how fast the dash is
+LUNGE_COOLDOWN = 1.5                # how long it has to wait before the next lunge
+LUNGE_WARN_COLOR = (255, 220, 60)   # yellow flash during the wind up
 
-# fleeing. some enemies (see "flees" above) run away when they are low on health 
-# they only do this once per life, so they dont just run forever 
-FLEE_HEALTH_RATIO = 0.5    # runs when health is at or below this share of max 
-FLEE_TIME = 2.5            # how long the run last 
-FLEE_SPEED_MULT = 1.2      # fleeing is a bit faster is a bit faster than a normal chase 
+SHOT_COOLDOWN = 1.8
+
+# fleeing. some enemies (see "flees" above) run away when they are low on health
+# they only do this once per life, so they dont just run forever
+FLEE_HEALTH_RATIO = 0.5   # runs when health is at or below this share of max
+FLEE_TIME = 2.5           # how long the run lasts
+FLEE_SPEED_MULT = 1.2     # fleeing is a bit faster than a normal chase
 
 
-def has_line_of_sight(x1, y1, x2, y2, walls): 
-    # returns True if no wall is setting between the twp points 
+def has_line_of_sight(x1, y1, x2, y2, walls):
+    # returns True if no wall is sitting between the two points
     distance = math.hypot(x2 - x1, y2 - y1)
     steps = max(1, int(distance / SIGHT_STEP))
     for i in range(1, steps):
-        t = i / steps 
-        px = x1 + (x2 - x1)  * t 
-        py = y1 + (y2 - y1)  * t 
+        t = i / steps
+        px = x1 + (x2 - x1) * t
+        py = y1 + (y2 - y1) * t
         for wall in walls:
             if wall.collidepoint(px, py):
-                return True 
+                return False
+    return True
 
 
-class Enemy: 
-    def __init__(self, x, y,kind="normal"):
-        # x and y are the CENTER of the enemy, in the world space
+class Enemy:
+    def __init__(self, x, y, kind="normal"):
+        # x and y are the CENTER of the enemy, in world space
         stats = ENEMY_TYPES[kind]
 
         self.kind = kind
@@ -130,6 +140,9 @@ class Enemy:
         self.fleeing = False
         self.flee_timer = 0.0
         self.has_fled = False
+
+        self.shoots = stats.get("shoots", False)
+        self.shoot_cooldown = 0.0
 
         self.hurt_timer = 0.0
         self.knock_x = 0.0
@@ -184,6 +197,8 @@ class Enemy:
 
         if self.hurt_timer > 0:
             self.hurt_timer -= dt
+        if self.shoot_cooldown > 0:
+            self.shoot_cooldown -= dt
 
         # while being pushed back the enemy doesnt think, it just slides
         if self.knock_timer > 0:
@@ -242,11 +257,19 @@ class Enemy:
         distance = math.hypot(to_x, to_y)
 
         # close enough and ready, so start the warning
-        if (distance > 0 and distance < LUNGE_RANGE and self.lunge_cooldown <= 0
-                and self.can_see(player, walls)):
+        if (not self.shoots and distance > 0 and distance < LUNGE_RANGE
+                and self.lunge_cooldown <= 0 and self.can_see(player, walls)):
             self.lunge_state = "windup"
             self.lunge_timer = LUNGE_WINDUP
             self.chasing = True
+            return
+
+        # spitters dont chase, they stop and spit when they can see you
+        if self.shoots and distance > 0 and self.can_see(player, walls):
+            self.chasing = False
+            self.last_seen_x = player.x
+            self.last_seen_y = player.y
+            self.lost_timer = ENEMY_LOST_TIME
             return
 
         if distance > 0 and self.can_see(player, walls):
@@ -310,6 +333,15 @@ class Enemy:
             if self.lost_timer > 0:
                 self.lost_timer = 0
             self.pick_direction()
+
+    def try_shoot(self, player, walls):
+        if not self.shoots or not self.is_alive() or self.shoot_cooldown > 0:
+            return False
+        if not self.can_see(player, walls):
+            return False
+
+        self.shoot_cooldown = SHOT_COOLDOWN
+        return True
 
     def update_flee(self, dt, player, walls):
         # run straight away from the player for a little while
@@ -388,6 +420,3 @@ class Enemy:
             fill = pygame.Rect(screen_rect.x, screen_rect.y - 8, fill_width, 4)
             pygame.draw.rect(surface, ENEMY_BAR_BACK, back)
             pygame.draw.rect(surface, ENEMY_BAR_FILL, fill)
-
-
-            

@@ -172,4 +172,4 @@ class Player:
 
         if self.swing_timer > 0 and self.swing_rect is not None:
             swing_screen = camera.apply(self.swing_rect)
-            pygame.draw.rect(surface, SWING_COLOR, swing_screen, 3)
+            pygame.draw.rect(surface, SWING_COLOR, swing_screen, 3)   

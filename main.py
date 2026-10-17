@@ -1,3 +1,4 @@
+import os
 import sys
 import random
 import pygame
@@ -17,7 +18,12 @@ from pickups import Coin, Heart, COIN_VALUES, HEART_DROP_CHANCE
 from spawner import EnemySpawner
 from crowd import separate_enemies, alert_nearby_enemies, crowd_report
 from damage import DamageTextList
-from projectile import Projectile, PROJECTILE_DAMAGE, THROW_COOLDOWN
+from projectile import (
+    Projectile, PROJECTILE_DAMAGE, THROW_COOLDOWN,
+    ENEMY_SHOT_SPEED, ENEMY_SHOT_LIFETIME, ENEMY_SHOT_DAMAGE, ENEMY_SHOT_COLOR,
+)
+
+BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
 # the levels in order, walking onto a door moves you to the next one
 # the last level loops back to the first one
@@ -31,6 +37,7 @@ ENEMY_SPAWN_CHARS = {
     "E": "normal",
     "R": "runner",
     "B": "brute",
+    "P": "spitter",
 }
 
 
@@ -50,6 +57,7 @@ class Game:
         self.coins = 0  # your total coins, this stays the same when you change levels
         self.damage_texts = DamageTextList()  # the little damage numbers over enemies
         self.projectiles = []
+        self.enemy_shots = []
         self.rock_cooldown = 0.0
         self.level_index = 0
         self.load_level(0)
@@ -57,7 +65,7 @@ class Game:
     def load_level(self, index):
         # loads a map, puts the player on its spawn tile and resets the camera
         self.level_index = index
-        rows, spawn_col, spawn_row = load_map(LEVEL_FILES[index])
+        rows, spawn_col, spawn_row = load_map(os.path.join(BASE_DIR, LEVEL_FILES[index]))
         self.world = World(rows)
 
         spawn_x = spawn_col * TILE_SIZE + TILE_SIZE / 2
@@ -89,6 +97,7 @@ class Game:
         self.ground_coins = []
         self.ground_hearts = []
         self.projectiles = []
+        self.enemy_shots = []
 
     def run(self):
         # main loop, runs every frame until you quit
@@ -122,6 +131,10 @@ class Game:
 
                 elif event.key == pygame.K_r:
                     self.throw_rock()
+
+                elif event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
+                    if not self.dialog.is_open():
+                        self.player.try_roll()
 
                 elif event.key == pygame.K_m:
                     self.minimap_visible = not self.minimap_visible
@@ -171,6 +184,23 @@ class Game:
                     self.on_enemy_died(hit)
 
         self.projectiles = [projectile for projectile in self.projectiles if projectile.alive]
+
+    def update_enemy_shots(self, dt):
+        for shot in self.enemy_shots:
+            shot.update(dt, self.world.walls)
+            shot.check_player(self.player, ENEMY_SHOT_DAMAGE)
+
+        self.enemy_shots = [shot for shot in self.enemy_shots if shot.alive]
+
+    def fire_enemy_shots(self):
+        for enemy in self.enemies:
+            if enemy.try_shoot(self.player, self.world.walls):
+                shot = Projectile(
+                    enemy.x, enemy.y, self.player.x, self.player.y,
+                    speed=ENEMY_SHOT_SPEED, lifetime=ENEMY_SHOT_LIFETIME,
+                )
+                shot.color = ENEMY_SHOT_COLOR
+                self.enemy_shots.append(shot)
 
     def player_attack(self):
         # ask the player for a swing, the player says no if the cooldown isnt done
@@ -223,6 +253,9 @@ class Game:
                 enemy.update(dt, self.player, self.world.walls)
                 if enemy.is_alive() and enemy.get_rect().colliderect(self.player.get_rect()):
                     self.player.take_damage(enemy.damage)
+
+            self.fire_enemy_shots()
+            self.update_enemy_shots(dt)
 
             # enemies push each other apart so they dont stack up
             separate_enemies(self.enemies, self.world.walls)
@@ -287,11 +320,14 @@ class Game:
         for projectile in self.projectiles:
             projectile.draw(self.screen, self.camera)
 
+        for shot in self.enemy_shots:
+            shot.draw(self.screen, self.camera)
+
         self.player.draw(self.screen, self.camera)
 
         # the hint stays in the same spot on screen, it doesnt move with the camera
         hint = self.font.render(
-            "WASD move, SPACE swing, R rock, E sign, M minimap, F3 debug, ESC quit", True, TEXT_COLOR
+            "WASD move, SPACE swing, R rock, Shift roll, E sign, M minimap, F3 debug, ESC quit", True, TEXT_COLOR
         )
         self.screen.blit(hint, (10, 10))
 
@@ -320,4 +356,4 @@ class Game:
 
 
 if __name__ == "__main__":
-    Game().run()   
+    Game().run() 
