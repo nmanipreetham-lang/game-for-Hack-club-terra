@@ -28,6 +28,9 @@ BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
 COMBO_WINDOW = 1.5
 COMBO_MAX_BONUS = 3
+CRIT_EVERY = 5
+CRIT_MULT = 2
+CRIT_SHOW_TIME = 0.6
 
 LEVEL_FILES = [
     "maps/level_01.txt",
@@ -59,7 +62,8 @@ class Game:
         self.deflects = 0
         self.combo = 0
         self.combo_timer = 0.0
-        self.damage = DamageTextList()
+        self.crit_timer = 0.0
+        self.damage_texts = DamageTextList()
         self.projectiles = []
         self.enemy_shots = []
         self.rock_cooldown = 0.0
@@ -99,6 +103,7 @@ class Game:
         self.enemy_shots = []
         self.combo = 0
         self.combo_timer = 0.0
+        self.crit_timer = 0.0
 
     def run(self):
         while self.running:
@@ -216,9 +221,14 @@ class Game:
                 shot.reflect()
                 self.deflects += 1
 
-        # every hit you land in a row adds a little damage, up to a cap
         bonus = min(self.combo, COMBO_MAX_BONUS)
         damage = ATTACK_DAMAGE + bonus
+
+        # every 5th swing in a row is a crit and does double damage
+        is_crit = (self.combo + 1) % CRIT_EVERY == 0
+        if is_crit:
+            damage *= CRIT_MULT
+
         landed = False
 
         for enemy in self.enemies:
@@ -236,6 +246,8 @@ class Game:
         if landed:
             self.combo += 1
             self.combo_timer = COMBO_WINDOW
+            if is_crit:
+                self.crit_timer = CRIT_SHOW_TIME
 
     def on_enemy_died(self, enemy):
         self.kills += 1
@@ -252,6 +264,9 @@ class Game:
             self.combo_timer -= dt
             if self.combo_timer <= 0:
                 self.combo = 0
+
+        if self.crit_timer > 0:
+            self.crit_timer -= dt
 
         if not self.dialog.is_open():
             keys = pygame.key.get_pressed()
@@ -364,6 +379,10 @@ class Game:
             )
             self.screen.blit(combo_text, (10, HEIGHT - 30))
 
+        if self.crit_timer > 0:
+            crit_text = self.font.render("CRIT!", True, (255, 220, 60))
+            self.screen.blit(crit_text, (WIDTH // 2 - crit_text.get_width() // 2, 60))
+
         if self.debug.visible:
             self.debug.draw_grid(self.screen, self.camera)
             self.debug.draw_info(self.screen, self.clock, self.player, self.world, self.camera, crowd_report(self.enemies))
@@ -374,4 +393,4 @@ class Game:
 
 
 if __name__ == "__main__":
-    Game().run() 
+    Game().run()
