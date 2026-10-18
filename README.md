@@ -32,8 +32,9 @@ Run the commands from the project folder. The game window is 960 × 640.
 - Walls and water block movement; grass and sand slow the player down.
 - Signs show short messages when you stand nearby and press E.
 - A minimap and an optional F3 debug overlay.
-- Three enemy types that wander, chase, search for the player, and can alert nearby enemies.
+- Four enemy types: normal, runner, brute, and a spitter that fires shots when it can see you.
 - Sword attacks, thrown rocks, dodge rolls, health, knockback, and floating damage numbers.
+- Swing your sword to send a spitter shot back; consecutive hits build a combo, with a critical hit every fifth landed swing.
 - Coins and hearts dropped by enemies, plus enemy respawns.
 
 There is no save system, sound, or boss fight yet.
@@ -60,3 +61,7 @@ The executable will be in `dist\TerraQuest.exe`.
 - Sessions 9–10: minimap and animated water.
 - Sessions 11–18: health, enemies, attacks, pickups, respawns, and enemy sight/search.
 - Sessions 19–27: crowd behavior, enemy tactics, damage numbers, rock projectiles, and dodge rolling.
+- Session 28: spitters fire slow shots from a distance.
+- Session 29: sword swings can deflect spitter shots back at enemies.
+- Session 30: consecutive landed attacks build a damage combo.
+- Session 31: every fifth hit in a combo is a critical hit.

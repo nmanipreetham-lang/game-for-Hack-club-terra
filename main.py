@@ -1,3 +1,4 @@
+import os
 import sys
 import random
 from pathlib import Path
@@ -18,26 +19,45 @@ from pickups import Coin, Heart, COIN_VALUES, HEART_DROP_CHANCE
 from spawner import EnemySpawner
 from crowd import separate_enemies, alert_nearby_enemies, crowd_report
 from damage import DamageTextList
-from projectile import Projectile, PROJECTILE_DAMAGE, THROW_COOLDOWN
+from projectile import (
+    Projectile, PROJECTILE_DAMAGE, THROW_COOLDOWN,
+    ENEMY_SHOT_SPEED, ENEMY_SHOT_LIFETIME, ENEMY_SHOT_DAMAGE, ENEMY_SHOT_COLOR,
+    REFLECT_DAMAGE,
+)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def asset_path(relative_path):
-    bundle_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    bundle_dir = Path(getattr(sys, "_MEIPASS", BASE_DIR))
     return bundle_dir / relative_path
 
 
-# the levels in order, walking onto a door moves you to the next one
-# the last level loops back to the first one
+COMBO_WINDOW = 1.5
+COMBO_MAX_BONUS = 3
+CRIT_EVERY = 5
+CRIT_MULT = 2
+CRIT_SHOW_TIME = 0.6
+
+
+def combo_hit_stats(combo):
+    damage = ATTACK_DAMAGE + min(combo, COMBO_MAX_BONUS)
+    is_crit = (combo + 1) % CRIT_EVERY == 0
+    if is_crit:
+        damage *= CRIT_MULT
+    return damage, is_crit
+
+
 LEVEL_FILES = [
     "maps/level_01.txt",
     "maps/level_02.txt",
 ]
 
-# which map character spawns which enemy type
 ENEMY_SPAWN_CHARS = {
     "E": "normal",
     "R": "runner",
     "B": "brute",
+    "P": "spitter",
 }
 
 
@@ -53,16 +73,20 @@ class Game:
         self.debug = DebugOverlay()
         self.dialog = DialogBox()
         self.minimap_visible = True
-        self.kills = 0  # counts every enemy you have killed in this game
-        self.coins = 0  # your total coins, this stays the same when you change levels
-        self.damage_texts = DamageTextList()  # the little damage numbers over enemies
+        self.kills = 0
+        self.coins = 0
+        self.deflects = 0
+        self.combo = 0
+        self.combo_timer = 0.0
+        self.crit_timer = 0.0
+        self.damage_texts = DamageTextList()
         self.projectiles = []
+        self.enemy_shots = []
         self.rock_cooldown = 0.0
         self.level_index = 0
         self.load_level(0)
 
     def load_level(self, index):
-        # loads a map, puts the player on its spawn tile and resets the camera
         self.level_index = index
         rows, spawn_col, spawn_row = load_map(asset_path(LEVEL_FILES[index]))
         self.world = World(rows)
@@ -74,11 +98,8 @@ class Game:
         self.camera = Camera(self.world.cols * TILE_SIZE, self.world.rows * TILE_SIZE)
         self.camera.snap(self.player.x, self.player.y)
 
-        # the minimap is built once per level
         self.minimap = Minimap(self.world)
 
-        # every enemy character in the map file becomes an enemy of that type
-        # we also remember where each one started, the spawner uses these later
         self.enemies = []
         spawn_points = []
         for row_index, row in enumerate(rows):
@@ -92,16 +113,16 @@ class Game:
 
         self.spawner = EnemySpawner(spawn_points)
 
-        # coins and hearts lying on the ground, cleared when the level restarts
         self.ground_coins = []
         self.ground_hearts = []
         self.projectiles = []
+        self.enemy_shots = []
+        self.combo = 0
+        self.combo_timer = 0.0
+        self.crit_timer = 0.0
 
     def run(self):
-        # main loop, runs every frame until you quit
         while self.running:
-            # dt is how many seconds passed since last frame
-            # using it makes movement the same speed on fast and slow pcs
             dt = self.clock.tick(FPS) / 1000
 
             self.handle_events()
@@ -118,7 +139,6 @@ class Game:
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    # first ESC closes the sign box, second ESC quits
                     if self.dialog.is_open():
                         self.dialog.close()
                     else:
@@ -130,6 +150,10 @@ class Game:
                 elif event.key == pygame.K_r:
                     self.throw_rock()
 
+                elif event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT):
+                    if not self.dialog.is_open():
+                        self.player.try_roll()
+
                 elif event.key == pygame.K_m:
                     self.minimap_visible = not self.minimap_visible
 
@@ -140,7 +164,6 @@ class Game:
                         self.try_read_sign()
 
                 elif event.key == pygame.K_SPACE:
-                    # you cant swing while the sign box is open
                     if not self.dialog.is_open():
                         self.player_attack()
 
@@ -179,42 +202,89 @@ class Game:
 
         self.projectiles = [projectile for projectile in self.projectiles if projectile.alive]
 
+    def update_enemy_shots(self, dt):
+        for shot in self.enemy_shots:
+            shot.update(dt, self.world.walls)
+
+            if shot.reflected:
+                hit = shot.check_enemies(self.enemies, REFLECT_DAMAGE)
+                if hit is not None:
+                    self.damage_texts.add(hit.x, hit.y - hit.size / 2, REFLECT_DAMAGE)
+                    if not hit.is_alive():
+                        self.on_enemy_died(hit)
+            else:
+                shot.check_player(self.player, ENEMY_SHOT_DAMAGE)
+
+        self.enemy_shots = [shot for shot in self.enemy_shots if shot.alive]
+
+    def fire_enemy_shots(self):
+        for enemy in self.enemies:
+            if enemy.try_shoot(self.player, self.world.walls):
+                shot = Projectile(
+                    enemy.x, enemy.y, self.player.x, self.player.y,
+                    speed=ENEMY_SHOT_SPEED, lifetime=ENEMY_SHOT_LIFETIME,
+                )
+                shot.color = ENEMY_SHOT_COLOR
+                self.enemy_shots.append(shot)
+
     def player_attack(self):
-        # ask the player for a swing, the player says no if the cooldown isnt done
         hitbox = self.player.try_attack()
         if hitbox is None:
             return
 
-        # check every living enemy, if the swing touches it then it gets hurt
+        for shot in self.enemy_shots:
+            if not shot.reflected and shot.alive and hitbox.colliderect(shot.get_rect()):
+                shot.reflect()
+                self.deflects += 1
+
+        damage, is_crit = combo_hit_stats(self.combo)
+
+        landed = False
+
         for enemy in self.enemies:
             if not enemy.is_alive():
                 continue
             if hitbox.colliderect(enemy.get_rect()):
-                enemy.take_damage(ATTACK_DAMAGE)
-                self.damage_texts.add(enemy.x, enemy.y - enemy.size / 2, ATTACK_DAMAGE)
+                enemy.take_damage(damage)
+                self.damage_texts.add(enemy.x, enemy.y - enemy.size / 2, damage)
                 enemy.knockback(self.player.x, self.player.y)
+                landed = True
                 if not enemy.is_alive():
                     self.on_enemy_died(enemy)
+
+        # a swing that connects keeps the combo alive, a miss does not
+        if landed:
+            self.combo += 1
+            self.combo_timer = COMBO_WINDOW
+            if is_crit:
+                self.crit_timer = CRIT_SHOW_TIME
+        else:
+            self.combo = 0
+            self.combo_timer = 0.0
 
     def on_enemy_died(self, enemy):
         self.kills += 1
 
-        # every enemy drops coins
         value = COIN_VALUES.get(enemy.kind, 1)
         self.ground_coins.append(Coin(enemy.x, enemy.y, value))
 
-        # some enemies also drop a heart, the chance depends on the enemy type
         chance = HEART_DROP_CHANCE.get(enemy.kind, 0.0)
         if random.random() < chance:
             self.ground_hearts.append(Heart(enemy.x, enemy.y))
 
     def update(self, dt):
-        # while the sign box is open everything in the world stops
+        if self.combo_timer > 0:
+            self.combo_timer -= dt
+            if self.combo_timer <= 0:
+                self.combo = 0
+
+        if self.crit_timer > 0:
+            self.crit_timer -= dt
+
         if not self.dialog.is_open():
             keys = pygame.key.get_pressed()
             self.player.update(dt, keys, self.world)
 
-            # check if the player is standing on a door
             tile_col = int(self.player.x // TILE_SIZE)
             tile_row = int(self.player.y // TILE_SIZE)
             if self.world.get_char_at(tile_col, tile_row) == "D":
@@ -222,22 +292,20 @@ class Game:
                 self.load_level(next_index)
                 return
 
-            # enemies that see you warn the ones standing near them
             alert_nearby_enemies(self.enemies, self.player, self.world.walls)
 
-            # enemies move, and touching one hurts the player by that enemy's damage
             for enemy in self.enemies:
                 enemy.update(dt, self.player, self.world.walls)
                 if enemy.is_alive() and enemy.get_rect().colliderect(self.player.get_rect()):
                     self.player.take_damage(enemy.damage)
 
-            # enemies push each other apart so they dont stack up
+            self.fire_enemy_shots()
+            self.update_enemy_shots(dt)
+
             separate_enemies(self.enemies, self.world.walls)
 
-            # dead enemies get removed from the list
             self.enemies = [enemy for enemy in self.enemies if enemy.is_alive()]
 
-            # the spawner can bring one enemy back every so often
             new_enemy = self.spawner.update(dt, self.enemies, self.player)
             if new_enemy is not None:
                 self.enemies.append(new_enemy)
@@ -246,7 +314,6 @@ class Game:
             self.damage_texts.update(dt)
             self.update_projectiles(dt)
 
-            # you died, so the level starts over from the spawn point
             if not self.player.is_alive():
                 self.load_level(self.level_index)
                 return
@@ -256,7 +323,6 @@ class Game:
     def update_pickups(self, dt):
         player_rect = self.player.get_rect()
 
-        # coins: walking over one adds its value to your total
         for coin in self.ground_coins:
             coin.update(dt)
             if coin.get_rect().colliderect(player_rect):
@@ -264,7 +330,6 @@ class Game:
                 coin.value = 0
         self.ground_coins = [coin for coin in self.ground_coins if coin.value > 0]
 
-        # hearts: walking over one heals you, but never above your max health
         for heart in self.ground_hearts:
             heart.update(dt)
             if heart.get_rect().colliderect(player_rect):
@@ -288,17 +353,18 @@ class Game:
         for enemy in self.enemies:
             enemy.draw(self.screen, self.camera)
 
-        # damage numbers float above whatever got hit
         self.damage_texts.draw(self.screen, self.camera)
 
         for projectile in self.projectiles:
             projectile.draw(self.screen, self.camera)
 
+        for shot in self.enemy_shots:
+            shot.draw(self.screen, self.camera)
+
         self.player.draw(self.screen, self.camera)
 
-        # the hint stays in the same spot on screen, it doesnt move with the camera
         hint = self.font.render(
-            "WASD move, SPACE swing, R rock, E sign, M minimap, F3 debug, ESC quit", True, TEXT_COLOR
+            "WASD move, SPACE swing, R rock, Shift roll, E sign, M minimap, F3 debug, ESC quit", True, TEXT_COLOR
         )
         self.screen.blit(hint, (10, 10))
 
@@ -317,6 +383,19 @@ class Game:
         kills_text = self.font.render(f"kills: {self.kills}", True, TEXT_COLOR)
         self.screen.blit(kills_text, (WIDTH - kills_text.get_width() - 10, HEIGHT - 30))
 
+        deflect_text = self.font.render(f"deflects: {self.deflects}", True, TEXT_COLOR)
+        self.screen.blit(deflect_text, (WIDTH - deflect_text.get_width() - 10, HEIGHT - 78))
+
+        if self.combo > 0:
+            combo_text = self.font.render(
+                f"combo x{self.combo}  +{min(self.combo, COMBO_MAX_BONUS)} dmg", True, TEXT_COLOR
+            )
+            self.screen.blit(combo_text, (10, HEIGHT - 30))
+
+        if self.crit_timer > 0:
+            crit_text = self.font.render("CRIT!", True, (255, 220, 60))
+            self.screen.blit(crit_text, (WIDTH // 2 - crit_text.get_width() // 2, 60))
+
         if self.debug.visible:
             self.debug.draw_grid(self.screen, self.camera)
             self.debug.draw_info(self.screen, self.clock, self.player, self.world, self.camera, crowd_report(self.enemies))
@@ -327,4 +406,4 @@ class Game:
 
 
 if __name__ == "__main__":
-    Game().run()   
+    Game().run()
